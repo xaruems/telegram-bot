@@ -94,11 +94,7 @@ def is_vip_message(message_text):
 
 
 async def main():
-    # ИСПРАВЛЕНИЕ: Отключаем синхронизацию истории
-    client = TelegramClient('session', api_id, api_hash, 
-                           device_model='Desktop',
-                           system_version='Windows 10',
-                           app_version='1.0')
+    client = TelegramClient('session', api_id, api_hash)
     load_blacklist()
 
     async def get_chat_info(chat_id):
@@ -269,23 +265,21 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки
-                contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
-                
-                from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonUrl, KeyboardButtonCallback
-
-                buttons = ReplyInlineMarkup([
-                    [KeyboardButtonUrl(text='✅ Контакт', url=contact_url)],
-                    [
-                        KeyboardButtonCallback(text='🚫 Добавить в ЧС', data=f'blacklist_{sender_id}'.encode()),
-                        KeyboardButtonCallback(text='❌ Неактуален', data=f'invalid_{sender_id}'.encode())
-                    ]
-                ])
-
                 # Отправляем уведомление
                 try:
                     target_entity = await client.get_entity(target_admin_id)
                     print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
+                    
+                    # ИСПРАВЛЕНИЕ: Используем встроенный метод build_reply_markup
+                    contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
+                    
+                    buttons = [
+                        [{'text': '✅ Контакт', 'url': contact_url}],
+                        [
+                            {'text': '🚫 Добавить в ЧС', 'callback': f'blacklist_{sender_id}'},
+                            {'text': '❌ Неактуален', 'callback': f'invalid_{sender_id}'}
+                        ]
+                    ]
                     
                     await client.send_message(
                         target_entity,
@@ -300,6 +294,8 @@ async def main():
                     
                 except Exception as send_error:
                     print(f"❌ Ошибка отправки сообщения в {category_data['name']}: {send_error}")
+                    import traceback
+                    traceback.print_exc()
 
             except Exception as e:
                 print(f"❌ Ошибка обработки сообщения: {e}")
