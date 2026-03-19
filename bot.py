@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
+from telethon.types import Button
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -151,7 +152,7 @@ async def main():
                 await event.edit(
                     f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
                     f"ID: <code>{user_id}</code>\n"
-                    f"Отмечен��: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                    f"Отмечено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
                     parse_mode='html',
                     buttons=None
                 )
@@ -259,22 +260,16 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки - ПРАВИЛЬНЫЙ ФОРМАТ TELETHON
-                buttons = [[
-                    {
-                        'text': '✅ Контакт',
-                        'url': f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"u{sender_id}"}'
-                    }
-                ], [
-                    {
-                        'text': '🚫 Добавить в ЧС',
-                        'callback': f'blacklist_{sender_id}'
-                    },
-                    {
-                        'text': '❌ Неактуален',
-                        'callback': f'invalid_{sender_id}'
-                    }
-                ]]
+                # Формируем кнопки используя Button.url() и Button.callback()
+                contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"u{sender_id}"}'
+                
+                buttons = [
+                    [Button.url('✅ Контакт', contact_url)],
+                    [
+                        Button.callback('🚫 Добавить в ЧС', f'blacklist_{sender_id}'),
+                        Button.callback('❌ Неактуален', f'invalid_{sender_id}')
+                    ]
+                ]
 
                 # Отправляем уведомление
                 try:
