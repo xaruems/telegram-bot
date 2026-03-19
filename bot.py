@@ -4,8 +4,6 @@ import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
-from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.functions.messages import SendMediaRequest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -96,7 +94,11 @@ def is_vip_message(message_text):
 
 
 async def main():
-    client = TelegramClient('session', api_id, api_hash)
+    # ИСПРАВЛЕНИЕ: Отключаем синхронизацию истории
+    client = TelegramClient('session', api_id, api_hash, 
+                           device_model='Desktop',
+                           system_version='Windows 10',
+                           app_version='1.0')
     load_blacklist()
 
     async def get_chat_info(chat_id):
@@ -134,13 +136,16 @@ async def main():
 
                 await event.answer(f"✅ Пользователь {user_id} добавлен в ЧС", alert=True)
 
-                await event.edit(
-                    f"🚫 <b>ПОЛЬЗОВАТЕЛЬ В ЧЁРНОМ СПИСКЕ</b>\n"
-                    f"ID: <code>{user_id}</code>\n"
-                    f"Добавлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-                    parse_mode='html',
-                    buttons=None
-                )
+                try:
+                    await event.edit(
+                        f"🚫 <b>ПОЛЬЗОВАТЕЛЬ В ЧЁРНОМ СПИСКЕ</b>\n"
+                        f"ID: <code>{user_id}</code>\n"
+                        f"Добавлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                        parse_mode='html',
+                        buttons=None
+                    )
+                except:
+                    pass
                 print(f"🚫 Пользователь {user_id} добавлен в ЧС")
 
             elif data.startswith('invalid_'):
@@ -150,13 +155,16 @@ async def main():
 
                 await event.answer(f"❌ Пользователь {user_id} отмечен как неактуален", alert=True)
 
-                await event.edit(
-                    f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
-                    f"ID: <code>{user_id}</code>\n"
-                    f"Отмечено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-                    parse_mode='html',
-                    buttons=None
-                )
+                try:
+                    await event.edit(
+                        f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
+                        f"ID: <code>{user_id}</code>\n"
+                        f"Отмечено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                        parse_mode='html',
+                        buttons=None
+                    )
+                except:
+                    pass
                 print(f"❌ Пользователь {user_id} отмечен как неактуален")
 
         except Exception as e:
@@ -261,22 +269,20 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки в ПРАВИЛЬНОМ формате для Telethon
+                # Формируем кнопки
                 contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
                 
                 from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonUrl, KeyboardButtonCallback
 
                 buttons = ReplyInlineMarkup([
-                    # Ряд 1: URL кнопка
                     [KeyboardButtonUrl(text='✅ Контакт', url=contact_url)],
-                    # Ряд 2: Callback кнопки
                     [
                         KeyboardButtonCallback(text='🚫 Добавить в ЧС', data=f'blacklist_{sender_id}'.encode()),
                         KeyboardButtonCallback(text='❌ Неактуален', data=f'invalid_{sender_id}'.encode())
                     ]
                 ])
 
-                # Отправляем уведомление С КНОПКАМИ
+                # Отправляем уведомление
                 try:
                     target_entity = await client.get_entity(target_admin_id)
                     print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
@@ -294,41 +300,12 @@ async def main():
                     
                 except Exception as send_error:
                     print(f"❌ Ошибка отправки сообщения в {category_data['name']}: {send_error}")
-                    print(f"   ADMIN_ID: {target_admin_id}")
-                    import traceback
-                    traceback.print_exc()
 
             except Exception as e:
                 print(f"❌ Ошибка обработки сообщения: {e}")
-                import traceback
-                traceback.print_exc()
 
         except Exception as e:
             print(f"❌ Ошибка обработчика: {e}")
-
-    async def monitor_chats():
-        """Функция для активного сканирования групп и каналов"""
-        try:
-            print("\n📊 Загрузка списка групп и каналов...")
-            dialogs = await client.get_dialogs()
-
-            active_chats = []
-            for dialog in dialogs:
-                if dialog.is_group or dialog.is_channel:
-                    active_chats.append({
-                        'id': dialog.id,
-                        'title': dialog.title,
-                        'type': 'Канал' if dialog.is_channel else 'Группа'
-                    })
-
-            print(f"✅ Найдено {len(active_chats)} групп/каналов:")
-            for chat in active_chats:
-                print(f"   • {chat['title']} ({chat['type']}) - ID: {chat['id']}")
-
-            return active_chats
-        except Exception as e:
-            print(f"⚠️  Ошибка загрузки чатов: {e}")
-            return []
 
     print('🔐 Подключение к Telegram...\n')
 
@@ -345,8 +322,6 @@ async def main():
                 print(f"   {config['emoji']} {config['name']}: {group_title} (ID: {config['admin_id']})")
             except Exception as e:
                 print(f"   ⚠️  {config['name']}: Ошибка проверки группы - {e}")
-
-        active_chats = await monitor_chats()
 
         print(f'\n🔍 Конфигурация ключевых слов:')
         for category, config in keywords_config.items():
