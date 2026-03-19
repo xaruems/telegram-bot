@@ -4,7 +4,6 @@ import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
-from telethon.tl.builder import _make_button
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -152,7 +151,7 @@ async def main():
                 await event.edit(
                     f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
                     f"ID: <code>{user_id}</code>\n"
-                    f"Отмечено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                    f"Отмечен��: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
                     parse_mode='html',
                     buttons=None
                 )
@@ -260,16 +259,22 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки в правильном формате Telethon
-                buttons = [
-                    [
-                        (_make_button(f'✅ Контакт', url=f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'),)
-                    ],
-                    [
-                        (_make_button(f'🚫 Добавить в ЧС', callback=f'blacklist_{sender_id}'),),
-                        (_make_button(f'❌ Неактуален', callback=f'invalid_{sender_id}'),)
-                    ]
-                ]
+                # Формируем кнопки - ПРАВИЛЬНЫЙ ФОРМАТ TELETHON
+                buttons = [[
+                    {
+                        'text': '✅ Контакт',
+                        'url': f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"u{sender_id}"}'
+                    }
+                ], [
+                    {
+                        'text': '🚫 Добавить в ЧС',
+                        'callback': f'blacklist_{sender_id}'
+                    },
+                    {
+                        'text': '❌ Неактуален',
+                        'callback': f'invalid_{sender_id}'
+                    }
+                ]]
 
                 # Отправляем уведомление
                 try:
@@ -290,7 +295,8 @@ async def main():
                 except Exception as send_error:
                     print(f"❌ Ошибка отправки сообщения в {category_data['name']}: {send_error}")
                     print(f"   ADMIN_ID: {target_admin_id}")
-                    print(f"   Тип ошибки: {type(send_error)}")
+                    import traceback
+                    traceback.print_exc()
 
             except Exception as e:
                 print(f"❌ Ошибка обработки сообщения: {e}")
@@ -299,8 +305,6 @@ async def main():
 
         except Exception as e:
             print(f"❌ Ошибка обработчика: {e}")
-            import traceback
-            traceback.print_exc()
 
     async def monitor_chats():
         """Функция для активного сканирования групп и каналов"""
@@ -346,9 +350,12 @@ async def main():
 
         print(f'\n🔍 Конфигурация ключевых слов:')
         for category, config in keywords_config.items():
-            print(f"   {config['emoji']} {config['name']}: {len(config['keywords'])} слов(а) - {', '.join(config['keywords'][:3])}{'...' if len(config['keywords']) > 3 else ''}")
+            keywords_list = ', '.join(config['keywords'][:3])
+            extra = f"... (+{len(config['keywords']) - 3} еще)" if len(config['keywords']) > 3 else ""
+            print(f"   {config['emoji']} {config['name']}: {keywords_list}{extra}")
 
-        print(f'\n⭐ VIP ключевые слова ({len(vip_keywords)}): {", ".join(vip_keywords[:3])}...' if vip_keywords else '\n⭐ VIP ключевые слова: не установлены')
+        if vip_keywords:
+            print(f'\n⭐ VIP ключевые слова ({len(vip_keywords)}): {", ".join(vip_keywords)}')
         print(f'🚫 Чёрный список: {len(blacklist_users)} пользователей')
         print(f'❌ Неактуальные: {len(invalid_users)} пользователей')
 
