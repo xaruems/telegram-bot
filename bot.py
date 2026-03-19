@@ -5,6 +5,7 @@ from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
 from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.messages import SendMediaRequest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -260,31 +261,31 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки - ПРОСТОЙ И ПРАВИЛЬНЫЙ СПОСОБ
-                contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"u{sender_id}"}'
+                # Формируем кнопки в ПРАВИЛЬНОМ формате для Telethon
+                contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
                 
-                buttons = [
+                from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonUrl, KeyboardButtonCallback
+
+                buttons = ReplyInlineMarkup([
                     # Ряд 1: URL кнопка
-                    [
-                        {'text': '✅ Контакт', 'url': contact_url}
-                    ],
+                    [KeyboardButtonUrl(text='✅ Контакт', url=contact_url)],
                     # Ряд 2: Callback кнопки
                     [
-                        {'text': '🚫 Добавить в ЧС', 'callback': f'blacklist_{sender_id}'},
-                        {'text': '❌ Неактуален', 'callback': f'invalid_{sender_id}'}
+                        KeyboardButtonCallback(text='🚫 Добавить в ЧС', data=f'blacklist_{sender_id}'.encode()),
+                        KeyboardButtonCallback(text='❌ Неактуален', data=f'invalid_{sender_id}'.encode())
                     ]
-                ]
+                ])
 
-                # Отправляем уведомление БЕЗ ОБРАБОТКИ КНОПОК
+                # Отправляем уведомление С КНОПКАМИ
                 try:
                     target_entity = await client.get_entity(target_admin_id)
                     print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
                     
-                    # Отправляем простое сообщение БЕЗ кнопок (они вызывают ошибки)
                     await client.send_message(
                         target_entity,
                         notification,
-                        parse_mode='html'
+                        parse_mode='html',
+                        buttons=buttons
                     )
                     
                     notified_messages.add(unique_key)
@@ -335,7 +336,7 @@ async def main():
         await client.start(phone=phone_number, password=password)
         print('✅ Успешно подключено к Telegram!\n')
 
-        # Проверяем ��елевые группы
+        # Проверяем целевые группы
         print(f'📬 Конфигурация групп уведомлений:')
         for category, config in keywords_config.items():
             try:
