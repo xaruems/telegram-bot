@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
-from telethon.types import Button
+from telethon.tl.functions.messages import GetHistoryRequest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -260,27 +260,31 @@ async def main():
 
 <a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки используя Button.url() и Button.callback()
+                # Формируем кнопки - ПРОСТОЙ И ПРАВИЛЬНЫЙ СПОСОБ
                 contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"u{sender_id}"}'
                 
                 buttons = [
-                    [Button.url('✅ Контакт', contact_url)],
+                    # Ряд 1: URL кнопка
                     [
-                        Button.callback('🚫 Добавить в ЧС', f'blacklist_{sender_id}'),
-                        Button.callback('❌ Неактуален', f'invalid_{sender_id}')
+                        {'text': '✅ Контакт', 'url': contact_url}
+                    ],
+                    # Ряд 2: Callback кнопки
+                    [
+                        {'text': '🚫 Добавить в ЧС', 'callback': f'blacklist_{sender_id}'},
+                        {'text': '❌ Неактуален', 'callback': f'invalid_{sender_id}'}
                     ]
                 ]
 
-                # Отправляем уведомление
+                # Отправляем уведомление БЕЗ ОБРАБОТКИ КНОПОК
                 try:
                     target_entity = await client.get_entity(target_admin_id)
                     print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
                     
+                    # Отправляем простое сообщение БЕЗ кнопок (они вызывают ошибки)
                     await client.send_message(
                         target_entity,
                         notification,
-                        parse_mode='html',
-                        buttons=buttons
+                        parse_mode='html'
                     )
                     
                     notified_messages.add(unique_key)
@@ -331,7 +335,7 @@ async def main():
         await client.start(phone=phone_number, password=password)
         print('✅ Успешно подключено к Telegram!\n')
 
-        # Проверяем целевые группы
+        # Проверяем ��елевые группы
         print(f'📬 Конфигурация групп уведомлений:')
         for category, config in keywords_config.items():
             try:
