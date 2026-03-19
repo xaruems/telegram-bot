@@ -56,6 +56,7 @@ notified_messages = set()
 monitored_chats = {}
 blacklist_users = set()
 invalid_users = set()
+client_notifications = {}  # Хранит ID уведомлений для управления
 
 
 def load_blacklist():
@@ -119,53 +120,6 @@ async def main():
                     return category, keyword
         return None, None
 
-    @client.on(events.CallbackQuery())
-    async def callback_handler(event):
-        """Обработчик нажатий на кнопки"""
-        try:
-            data = event.data.decode()
-
-            if data.startswith('blacklist_'):
-                user_id = int(data.split('_')[1])
-                blacklist_users.add(user_id)
-                save_blacklist()
-
-                await event.answer(f"✅ Пользователь {user_id} добавлен в ЧС", alert=True)
-
-                try:
-                    await event.edit(
-                        f"🚫 <b>ПОЛЬЗОВАТЕЛЬ В ЧЁРНОМ СПИСКЕ</b>\n"
-                        f"ID: <code>{user_id}</code>\n"
-                        f"Добавлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-                        parse_mode='html',
-                        buttons=None
-                    )
-                except:
-                    pass
-                print(f"🚫 Пользователь {user_id} добавлен в ЧС")
-
-            elif data.startswith('invalid_'):
-                user_id = int(data.split('_')[1])
-                invalid_users.add(user_id)
-                save_blacklist()
-
-                await event.answer(f"❌ Пользователь {user_id} отмечен как неактуален", alert=True)
-
-                try:
-                    await event.edit(
-                        f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
-                        f"ID: <code>{user_id}</code>\n"
-                        f"Отмечено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-                        parse_mode='html',
-                        buttons=None
-                    )
-                except:
-                    pass
-                print(f"❌ Пользователь {user_id} отмечен как неактуален")
-
-        except Exception as e:
-            print(f"❌ Ошибка обработки кнопки: {e}")
-
     @client.on(events.NewMessage(incoming=True))
     async def handler(event):
         """Обработчик новых сообщений из всех источников"""
@@ -204,6 +158,10 @@ async def main():
                 # Проверяем чёрный список
                 if sender_id in blacklist_users:
                     print(f"⛔ Пользователь {sender_name} в ЧС - игнорируем")
+                    return
+
+                if sender_id in invalid_users:
+                    print(f"❌ Пользователь {sender_name} неактуален - игнорируем")
                     return
 
                 # Получаем информацию о чате
@@ -248,7 +206,9 @@ async def main():
                 is_vip = is_vip_message(message_text)
                 vip_indicator = "⭐ <b>VIP!</b>\n" if is_vip else ""
 
-                # Формируем уведомление
+                # Формируем уведомление с кнопками как текст
+                contact_link = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
+                
                 notification = f"""🔔 <b>НАЙДЕН НОВЫЙ КЛИЕНТ!</b>
 
 {vip_indicator}{category_data['emoji']} <b>КАТЕГОРИЯ:</b> {category_data['name']}
@@ -263,30 +223,32 @@ async def main():
 📝 <b>Сообщение:</b>
 <code>{message_text[:300]}{"..." if len(message_text) > 300 else ""}</code>
 
-<a href="{message_link}">👉 Открыть сообщение</a>"""
+<a href="{message_link}">👉 Открыть сообщение</a>
 
-                # Отправляем уведомление
+━━━━━━━━━━━━━━━━━
+<b>Действия:</b>
+✅ Контакт: <a href="{contact_link}">Открыть профиль</a>
+🚫 Добавить в ЧС: /blacklist {sender_id}
+❌ Неактуален: /invalid {sender_id}"""
+
+                # Отправляем уведомление БЕЗ кнопок
                 try:
                     target_entity = await client.get_entity(target_admin_id)
                     print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
                     
-                    # ИСПРАВЛЕНИЕ: Используем встроенный метод build_reply_markup
-                    contact_url = f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'
-                    
-                    buttons = [
-                        [{'text': '✅ Контакт', 'url': contact_url}],
-                        [
-                            {'text': '🚫 Добавить в ЧС', 'callback': f'blacklist_{sender_id}'},
-                            {'text': '❌ Неактуален', 'callback': f'invalid_{sender_id}'}
-                        ]
-                    ]
-                    
-                    await client.send_message(
+                    msg = await client.send_message(
                         target_entity,
                         notification,
                         parse_mode='html',
-                        buttons=buttons
+                        link_preview=False
                     )
+                    
+                    # Сохраняем информацию об уведомлении
+                    client_notifications[f"{sender_id}_{target_admin_id}"] = {
+                        'message_id': msg.id,
+                        'sender_id': sender_id,
+                        'chat_id': target_admin_id
+                    }
                     
                     notified_messages.add(unique_key)
                     status = "VIP 🌟" if is_vip else "обычный"
@@ -299,9 +261,37 @@ async def main():
 
             except Exception as e:
                 print(f"❌ Ошибка обработки сообщения: {e}")
+                import traceback
+                traceback.print_exc()
 
         except Exception as e:
             print(f"❌ Ошибка обработчика: {e}")
+
+    @client.on(events.NewMessage(pattern=r'^/blacklist (\d+)'))
+    async def blacklist_command(event):
+        """Команда добавления в ЧС"""
+        try:
+            user_id = int(event.pattern_match.group(1))
+            blacklist_users.add(user_id)
+            save_blacklist()
+            
+            await event.reply(f"✅ Пользователь {user_id} добавлен в ЧС!")
+            print(f"🚫 Пользователь {user_id} добавлен в ЧС")
+        except Exception as e:
+            await event.reply(f"❌ Ошибка: {e}")
+
+    @client.on(events.NewMessage(pattern=r'^/invalid (\d+)'))
+    async def invalid_command(event):
+        """Команда отметить как неактуален"""
+        try:
+            user_id = int(event.pattern_match.group(1))
+            invalid_users.add(user_id)
+            save_blacklist()
+            
+            await event.reply(f"❌ Пользователь {user_id} отмечен как неактуален!")
+            print(f"❌ Пользователь {user_id} отмечен как неактуален")
+        except Exception as e:
+            await event.reply(f"❌ Ошибка: {e}")
 
     print('🔐 Подключение к Telegram...\n')
 
