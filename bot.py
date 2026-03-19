@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
-from telethon.tl.functions.messages import DeleteMessagesRequest
+from telethon.tl.builder import _make_button
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -55,8 +55,8 @@ keywords_config = {
 
 notified_messages = set()
 monitored_chats = {}
-blacklist_users = set()  # Чёрный список пользователей
-invalid_users = set()  # Неактуальные пользователи
+blacklist_users = set()
+invalid_users = set()
 
 
 def load_blacklist():
@@ -127,14 +127,12 @@ async def main():
             data = event.data.decode()
 
             if data.startswith('blacklist_'):
-                # Кнопка "Добавить в ЧС"
                 user_id = int(data.split('_')[1])
                 blacklist_users.add(user_id)
                 save_blacklist()
 
                 await event.answer(f"✅ Пользователь {user_id} добавлен в ЧС", alert=True)
 
-                # Редактируем сообщение
                 await event.edit(
                     f"🚫 <b>ПОЛЬЗОВАТЕЛЬ В ЧЁРНОМ СПИСКЕ</b>\n"
                     f"ID: <code>{user_id}</code>\n"
@@ -145,14 +143,12 @@ async def main():
                 print(f"🚫 Пользователь {user_id} добавлен в ЧС")
 
             elif data.startswith('invalid_'):
-                # Кнопка "Отметить как неактуален"
                 user_id = int(data.split('_')[1])
                 invalid_users.add(user_id)
                 save_blacklist()
 
                 await event.answer(f"❌ Пользователь {user_id} отмечен как неактуален", alert=True)
 
-                # Редактируем сообщение
                 await event.edit(
                     f"❌ <b>ПОЛЬЗОВАТЕЛЬ НЕАКТУАЛЕН</b>\n"
                     f"ID: <code>{user_id}</code>\n"
@@ -169,7 +165,7 @@ async def main():
     async def handler(event):
         """Обработчик новых сообщений из всех источников"""
         try:
-            message_text = (event.message.text or '').lower()
+            message_text = (event.message.text or '')
             if not message_text:
                 return
 
@@ -177,7 +173,6 @@ async def main():
             message_id = event.message.id
             unique_key = f"{chat_id}_{message_id}"
 
-            # Пропускаем уже обработанные сообщения
             if unique_key in notified_messages:
                 return
 
@@ -186,28 +181,27 @@ async def main():
             if not category:
                 return
 
+            print(f"🔍 Найдено ключевое слово '{found_keyword}' в категории '{category}'")
+
             try:
                 # Получаем информацию об отправителе
                 sender = await event.get_sender()
-                if sender:
-                    sender_name = sender.first_name or 'Пользователь'
-                    if hasattr(sender, 'last_name') and sender.last_name:
-                        sender_name += ' ' + sender.last_name
-                    username = f"@{sender.username}" if hasattr(sender,
-                                                                'username') and sender.username else "нет username"
-                    sender_id = sender.id
-                else:
-                    sender_name = 'Неизвестный пользователь'
-                    username = 'нет информации'
-                    sender_id = event.from_id if hasattr(event, 'from_id') else 'неизвестно'
+                if not sender:
+                    print("⚠️  Не удалось получить информацию об отправителе")
                     return
+
+                sender_name = sender.first_name or 'Пользователь'
+                if hasattr(sender, 'last_name') and sender.last_name:
+                    sender_name += ' ' + sender.last_name
+                username = f"@{sender.username}" if hasattr(sender, 'username') and sender.username else "нет username"
+                sender_id = sender.id
 
                 # Проверяем чёрный список
                 if sender_id in blacklist_users:
                     print(f"⛔ Пользователь {sender_name} в ЧС - игнорируем")
                     return
 
-                # Получа��м информацию о чате
+                # Получаем информацию о чате
                 chat = await get_chat_info(chat_id)
 
                 if chat is None:
@@ -246,15 +240,13 @@ async def main():
                 target_admin_id = category_data['admin_id']
 
                 # Проверяем VIP статус
-                is_vip = is_vip_message(event.message.text or '')
-                vip_prefix = "⭐ " if is_vip else ""
+                is_vip = is_vip_message(message_text)
                 vip_indicator = "⭐ <b>VIP!</b>\n" if is_vip else ""
 
-                # Формируем уведомление с категорией
-                notification = f"""
-🔔 <b>НАЙДЕН НОВЫЙ КЛИЕНТ!</b>
-{vip_indicator}
-{category_data['emoji']} <b>КАТЕГОРИЯ:</b> {category_data['name']}
+                # Формируем уведомление
+                notification = f"""🔔 <b>НАЙДЕН НОВЫЙ КЛИЕНТ!</b>
+
+{vip_indicator}{category_data['emoji']} <b>КАТЕГОРИЯ:</b> {category_data['name']}
 
 👤 <b>Клиент:</b> {sender_name}
 🆔 <b>ID клиента:</b> <code>{sender_id}</code>
@@ -264,56 +256,51 @@ async def main():
 🎯 <b>Ключевое слово:</b> <code>{found_keyword}</code>
 
 📝 <b>Сообщение:</b>
-<code>{(event.message.text or '')[:300]}{"..." if len(event.message.text or '') > 300 else ""}</code>
+<code>{message_text[:300]}{"..." if len(message_text) > 300 else ""}</code>
 
-<a href="{message_link}">👉 Открыть сообщение</a>
-                """
+<a href="{message_link}">👉 Открыть сообщение</a>"""
 
-                # Формируем кнопки
-                from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonCallback
-
+                # Формируем кнопки в правильном формате Telethon
                 buttons = [
                     [
-                        {
-                            'text': '✅ Контакт',
-                            'url': f'https://t.me/{"user" if not hasattr(sender, "username") or not sender.username else sender.username}'
-                        }
+                        (_make_button(f'✅ Контакт', url=f'https://t.me/{sender.username if hasattr(sender, "username") and sender.username else f"user{sender_id}"}'),)
                     ],
                     [
-                        {
-                            'text': '🚫 Добавить в ЧС',
-                            'callback': f'blacklist_{sender_id}'
-                        },
-                        {
-                            'text': '❌ Неактуален',
-                            'callback': f'invalid_{sender_id}'
-                        }
+                        (_make_button(f'🚫 Добавить в ЧС', callback=f'blacklist_{sender_id}'),),
+                        (_make_button(f'❌ Неактуален', callback=f'invalid_{sender_id}'),)
                     ]
                 ]
 
-                # Отправляем уведомление в соответствующую группу
+                # Отправляем уведомление
                 try:
                     target_entity = await client.get_entity(target_admin_id)
+                    print(f"📤 Отправляю уведомление в {category_data['name']} (ID: {target_admin_id})...")
+                    
                     await client.send_message(
                         target_entity,
                         notification,
                         parse_mode='html',
                         buttons=buttons
                     )
+                    
                     notified_messages.add(unique_key)
-
                     status = "VIP 🌟" if is_vip else "обычный"
-                    print(
-                        f"✅ Уведомление отправлено [{status}] в {category_data['name']}: {sender_name} в {chat_title}")
+                    print(f"✅ Уведомление отправлено [{status}] в {category_data['name']}: {sender_name} из {chat_title}")
+                    
                 except Exception as send_error:
                     print(f"❌ Ошибка отправки сообщения в {category_data['name']}: {send_error}")
                     print(f"   ADMIN_ID: {target_admin_id}")
+                    print(f"   Тип ошибки: {type(send_error)}")
 
             except Exception as e:
                 print(f"❌ Ошибка обработки сообщения: {e}")
+                import traceback
+                traceback.print_exc()
 
         except Exception as e:
             print(f"❌ Ошибка обработчика: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def monitor_chats():
         """Функция для активного сканирования групп и каналов"""
@@ -345,7 +332,7 @@ async def main():
         await client.start(phone=phone_number, password=password)
         print('✅ Успешно подключено к Telegram!\n')
 
-        # Проверяем целевые группы для каждой категории
+        # Проверяем целевые группы
         print(f'📬 Конфигурация групп уведомлений:')
         for category, config in keywords_config.items():
             try:
@@ -355,15 +342,13 @@ async def main():
             except Exception as e:
                 print(f"   ⚠️  {config['name']}: Ошибка проверки группы - {e}")
 
-        # Загружаем список доступных чатов
         active_chats = await monitor_chats()
 
-        # Выводим конфиг ключевых слов
         print(f'\n🔍 Конфигурация ключевых слов:')
         for category, config in keywords_config.items():
-            print(f"   {config['emoji']} {config['name']}: {len(config['keywords'])} слов(а)")
+            print(f"   {config['emoji']} {config['name']}: {len(config['keywords'])} слов(а) - {', '.join(config['keywords'][:3])}{'...' if len(config['keywords']) > 3 else ''}")
 
-        print(f'\n⭐ VIP ключевые слова ({len(vip_keywords)}): {", ".join(vip_keywords[:3])}...')
+        print(f'\n⭐ VIP ключевые слова ({len(vip_keywords)}): {", ".join(vip_keywords[:3])}...' if vip_keywords else '\n⭐ VIP ключевые слова: не установлены')
         print(f'🚫 Чёрный список: {len(blacklist_users)} пользователей')
         print(f'❌ Неактуальные: {len(invalid_users)} пользователей')
 
@@ -374,6 +359,8 @@ async def main():
 
     except Exception as e:
         print(f'❌ Ошибка подключения: {e}')
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
