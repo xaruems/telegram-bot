@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Channel, Chat
@@ -56,19 +57,21 @@ notified_messages = set()
 monitored_chats = {}
 blacklist_users = set()
 invalid_users = set()
+banned_sellers = set()  # Новое: забаненные продавцы
 client_notifications = {}  # Хранит ID уведомлений для управления
 
 
 def load_blacklist():
     """Загрузить чёрный список из файла"""
-    global blacklist_users, invalid_users
+    global blacklist_users, invalid_users, banned_sellers
     try:
         if os.path.exists('blacklist.json'):
             with open('blacklist.json', 'r') as f:
                 data = json.load(f)
                 blacklist_users = set(data.get('blacklist', []))
                 invalid_users = set(data.get('invalid', []))
-                print(f"✅ Загружен чёрный список: {len(blacklist_users)} + {len(invalid_users)} неактуальных")
+                banned_sellers = set(data.get('banned_sellers', []))  # Загружаем забаненных продавцов
+                print(f"✅ Загружен чёрный список: {len(blacklist_users)} + {len(invalid_users)} неактуальных + {len(banned_sellers)} продавцов")
     except Exception as e:
         print(f"⚠️  Ошибка загрузки чёрного списка: {e}")
 
@@ -79,7 +82,8 @@ def save_blacklist():
         with open('blacklist.json', 'w') as f:
             json.dump({
                 'blacklist': list(blacklist_users),
-                'invalid': list(invalid_users)
+                'invalid': list(invalid_users),
+                'banned_sellers': list(banned_sellers)  # Сохраняем забаненных продавцов
             }, f, indent=2)
     except Exception as e:
         print(f"❌ Ошибка сохранения чёрного списка: {e}")
@@ -89,7 +93,25 @@ def is_vip_message(message_text):
     """Проверить, VIP ли сообщение"""
     message_lower = message_text.lower()
     for keyword in vip_keywords:
-        if keyword in message_lower:
+        # Ищем VIP ключевое слово как целое слово
+        if re.search(r'\b' + re.escape(keyword) + r'\b', message_lower):
+            return True
+    return False
+
+
+def is_auto_response(event):
+    """Проверить, это ли автоответчик или система сообщение"""
+    message = event.message
+    # Проверяем флаги сообщения
+    if hasattr(message, 'from_scheduled') and message.from_scheduled:
+        return True
+    if hasattr(message, 'post') and message.post:
+        return True
+    if hasattr(message, 'silent') and message.silent:
+        return True
+    # Проверяем отправителя (может быть система)
+    if hasattr(event, 'sender_id'):
+        if event.sender_id == 777000:  # Telegram Service Notifications
             return True
     return False
 
@@ -112,11 +134,12 @@ async def main():
             return None
 
     def find_keyword_category(message_text):
-        """Найти ключевое слово и вернуть его категорию"""
+        """Найти ключевое слово и вернуть его категорию (поиск по целым словам)"""
         message_lower = message_text.lower()
         for category, config in keywords_config.items():
             for keyword in config['keywords']:
-                if keyword in message_lower:
+                # Ищем ключевое слово как целое слово, а не внутри других слов
+                if re.search(r'\b' + re.escape(keyword) + r'\b', message_lower):
                     return category, keyword
         return None, None
 
@@ -126,6 +149,11 @@ async def main():
         try:
             message_text = (event.message.text or '')
             if not message_text:
+                return
+
+            # Проверяем, это ли автоответчик или система сообщение
+            if is_auto_response(event):
+                print(f"⏭️  Автоответчик или система сообщение - пропускаем")
                 return
 
             chat_id = event.chat_id
@@ -140,7 +168,7 @@ async def main():
             if not category:
                 return
 
-            print(f"🔍 Найдено ключевое слово '{found_keyword}' в категории '{category}'")
+            print(f"🔍 Найдено кл��чевое слово '{found_keyword}' в категории '{category}'")
 
             try:
                 # Получаем информацию об отправителе
@@ -162,6 +190,11 @@ async def main():
 
                 if sender_id in invalid_users:
                     print(f"❌ Пользователь {sender_name} неактуален - игнорируем")
+                    return
+
+                # Проверяем, забанен ли продавец
+                if sender_id in banned_sellers:
+                    print(f"🚫 Продавец {sender_name} забанен - игнорируем")
                     return
 
                 # Получаем информацию о чате
@@ -229,7 +262,8 @@ async def main():
 <b>Действия:</b>
 ✅ Контакт: <a href="{contact_link}">Открыть профиль</a>
 🚫 Добавить в ЧС: /blacklist {sender_id}
-❌ Неактуален: /invalid {sender_id}"""
+❌ Неактуале��: /invalid {sender_id}
+🚫 Забанить продавца: /ban_seller {sender_id}"""
 
                 # Отправляем уведомление БЕЗ кнопок
                 try:
@@ -293,6 +327,34 @@ async def main():
         except Exception as e:
             await event.reply(f"❌ Ошибка: {e}")
 
+    @client.on(events.NewMessage(pattern=r'^/ban_seller (\d+)'))
+    async def ban_seller_command(event):
+        """Команда забанить продавца"""
+        try:
+            user_id = int(event.pattern_match.group(1))
+            banned_sellers.add(user_id)
+            save_blacklist()
+            
+            await event.reply(f"🚫 Продавец {user_id} забанен!")
+            print(f"🚫 Продавец {user_id} забанен")
+        except Exception as e:
+            await event.reply(f"❌ Ошибка: {e}")
+
+    @client.on(events.NewMessage(pattern=r'^/unban_seller (\d+)'))
+    async def unban_seller_command(event):
+        """Команда разбанить продавца"""
+        try:
+            user_id = int(event.pattern_match.group(1))
+            if user_id in banned_sellers:
+                banned_sellers.remove(user_id)
+                save_blacklist()
+                await event.reply(f"✅ Продавец {user_id} разбанен!")
+                print(f"✅ Продавец {user_id} разбанен")
+            else:
+                await event.reply(f"⚠️  Продавец {user_id} не в списке забаненных")
+        except Exception as e:
+            await event.reply(f"❌ Ошибка: {e}")
+
     print('🔐 Подключение к Telegram...\n')
 
     try:
@@ -319,6 +381,7 @@ async def main():
             print(f'\n⭐ VIP ключевые слова ({len(vip_keywords)}): {", ".join(vip_keywords)}')
         print(f'🚫 Чёрный список: {len(blacklist_users)} пользователей')
         print(f'❌ Неактуальные: {len(invalid_users)} пользователей')
+        print(f'🚫 Забаненные продавцы: {len(banned_sellers)} пользователей')
 
         print(f'\n🚀 Бот запущен и слушает сообщения из всех групп и каналов...')
         print('⏹️  Для остановки нажми Ctrl+C\n')
